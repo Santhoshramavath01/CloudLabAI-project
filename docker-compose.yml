@@ -1,0 +1,82 @@
+version: "3.9"
+
+name: cloudlab-ai
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloudlab-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cloudlab
+      POSTGRES_PASSWORD: cloudlab
+      POSTGRES_DB: cloudlab_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - cloudlab_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudlab -d cloudlab_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: cloudlab-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - cloudlab_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.backend.dev
+    container_name: cloudlab-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://cloudlab:cloudlab@postgres:5432/cloudlab_ai?schema=public
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/backend:/app/apps/backend
+      - ./packages/shared:/app/packages/shared
+      - backend_node_modules:/app/apps/backend/node_modules
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.frontend.dev
+    container_name: cloudlab-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:4000/api/v1
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./apps/frontend:/app/apps/frontend
+      - ./packages/shared:/app/packages/shared
+      - frontend_node_modules:/app/apps/frontend/node_modules
+
+volumes:
+  cloudlab_postgres_data:
+  cloudlab_redis_data:
+  backend_node_modules:
+  frontend_node_modules:

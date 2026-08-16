@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  password      String
+  name          String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+  workspaces    Workspace[]
+
+  @@map("users")
+}
+
+/// One row per issued refresh token ("session"). The raw JWT is never
+/// stored — only a SHA-256 hash, so a leaked database dump can't be used
+/// to forge sessions. `id` doubles as the token's `jti` claim, so a
+/// presented token can be looked up in O(1) instead of scanning by hash.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// Phase 2.7 added the database-level entity. Phase 2.11/2.12 add real
+/// container provisioning (see modules/docker/docker.service.ts and
+/// services/workspace.service.ts) — `containerId`/`containerImage` stay
+/// nullable because a freshly-created workspace has no container until
+/// its first `start`. There is still no separate `Container` table:
+/// today a workspace has exactly one container, so a second table would
+/// only duplicate `containerId`. That changes once a workspace can run
+/// more than one container (Docker management phase), and resource
+/// limits (WORKSPACE_CONTAINER_CPU_LIMIT/MEMORY_MB) are still global env
+/// config rather than a per-workspace field — the wizard's resource-
+/// allocation step (`WorkspaceResource`) is still unbuilt.
+model Workspace {
+  id             String          @id @default(uuid())
+  name           String
+  description    String?
+  status         WorkspaceStatus @default(STOPPED)
+  ownerId        String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  containerId    String?
+  containerImage String?
+  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, name])
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+/// Mirrors WorkspaceStatus in packages/shared/src/types/common.ts — keep
+/// the two in sync if this ever changes.
+enum WorkspaceStatus {
+  CREATING
+  STARTING
+  RUNNING
+  STOPPING
+  STOPPED
+  ERROR
+  DELETING
+  DELETED
+}

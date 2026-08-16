@@ -1,0 +1,22 @@
+# PURPOSE: Development image for the frontend service. Runs Vite's dev
+# server with hot module reload. Production build/serve image is added in
+# infra/docker/Dockerfile.frontend.prod during Phase 18.
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+COPY apps/frontend/package.json apps/frontend/package.json
+COPY packages/shared/package.json packages/shared/package.json
+
+RUN npm install --workspaces --if-present
+
+COPY packages/shared packages/shared
+COPY apps/frontend apps/frontend
+
+WORKDIR /app/apps/frontend
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host"]
